@@ -4,36 +4,64 @@
 mod constants;
 
 use std::alloc::Global;
-use std::env;
+use std::env::{self};
 use std::sync::Arc;
+use std::thread::sleep;
 use std::time::Duration;
 
 use constants::THEROCK_EMOJI;
-use rand::{thread_rng, Rng};
 use serenity::all::{
-    ChannelId, Command, CommandOptionType, CreateCommand, CreateCommandOption,
-    CreateInteractionResponse, CreateInteractionResponseMessage, GuildId, Interaction, Message,
-    ReactionType, Ready, ResolvedOption, ResolvedValue, User,
+    ChannelId, CommandOptionType, CreateCommand, CreateCommandOption, CreateInteractionResponse,
+    CreateInteractionResponseMessage, GuildId, Interaction, Message, ReactionType, Ready,
+    ResolvedOption, ResolvedValue, User,
 };
 use serenity::async_trait;
 use serenity::prelude::*;
-use tokio::time::{interval, sleep};
+use tokio::time::interval;
 
 struct Handler;
 
 struct OneWordStory;
+struct CurrentNumber;
+
+const PUNCTUANTION: [char; 33] = [
+    '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', ' ', '-', '.', '/', ':', ';', '<',
+    '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~',
+];
 
 macro_rules! make_temp {
-    ($msg:expr, $ctx_http:expr) => {
+    ($msgs:expr, $ctx_http:expr) => {
         tokio::spawn(async move {
-            sleep(Duration::from_secs(5)).await;
-            $msg.delete($ctx_http).await.unwrap();
-        })
+            sleep(Duration::from_secs(5));
+            for msg in &$msgs {
+                msg.delete($ctx_http).await.unwrap();
+            }
+        });
+    };
+}
+
+macro_rules! react_positively {
+    ($msg:expr, $ctx_http:expr) => {
+        $msg.react($ctx_http, ReactionType::Unicode("✅".to_string()))
+            .await
+            .unwrap();
+    };
+}
+
+macro_rules! react_negatively {
+    ($msg:expr, $ctx_http:expr) => {
+        $msg.react($ctx_http, ReactionType::Unicode("❌".to_string()))
+            .await
+            .unwrap();
     };
 }
 
 impl TypeMapKey for OneWordStory {
     type Value = Arc<RwLock<Vec<(String, User)>>>;
+}
+
+impl TypeMapKey for CurrentNumber {
+    type Value = Arc<RwLock<(usize, Option<User>)>>;
 }
 
 fn warn_run(options: &[ResolvedOption]) -> String {
@@ -47,7 +75,7 @@ fn warn_run(options: &[ResolvedOption]) -> String {
             ..
         }) = options.get(1)
         {
-            format!("{} has been warned for **{}**", user, reason)
+            format!("{} has been warned for **{}**.", user, reason)
         } else {
             "No reason".to_string()
         }
@@ -94,21 +122,41 @@ async fn story_run(options: &[ResolvedOption<'_>], ctx: &Context) -> String {
         ..
     }) = options.first()
     {
-        match command {
-            &"see" => {
+        match *command {
+            "see" => {
                 let words_lock = {
                     let data_read = ctx.data.read().await;
                     data_read.get::<OneWordStory>().unwrap().clone()
                 };
                 let words = words_lock.read().await;
 
-                words
+                if words.is_empty() {
+                    "The story is empty.".to_string()
+                } else {
+                    words
+                        .iter()
+                        .map(|(word, _)| word.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                }
+            }
+            "end" => {
+                let words_lock = {
+                    let data_read = ctx.data.read().await;
+                    data_read.get::<OneWordStory>().unwrap().clone()
+                };
+
+                let mut words = words_lock.write().await;
+
+                let story = words
                     .iter()
                     .map(|(word, _)| word.as_str())
                     .collect::<Vec<_>>()
-                    .join(" ")
+                    .join(" ");
+                words.clear();
+                story
             }
-            _ => "sdfsdf".to_string(),
+            _ => "Unrecognized command.".to_string(),
         }
     } else {
         "No command".to_string()
@@ -153,9 +201,9 @@ impl EventHandler for Handler {
         //         .unwrap();
         // }
         //
-        Command::set_global_commands(&ctx.http, vec![])
-            .await
-            .unwrap();
+        // Command::set_global_commands(&ctx.http, vec![])
+        //     .await
+        //     .unwrap();
         // guild_id.set_commands(&ctx.http, vec![]).await.unwrap();
         guild_id.set_commands(&ctx.http, commands).await.unwrap();
 
@@ -169,13 +217,13 @@ impl EventHandler for Handler {
 
                 let warning_msg = ChannelId::new(1238975924725350433)
                     .say(
-                        http.clone(),
+                        &http,
                         format!("Don't forget to follow the rules! {}", THEROCK_EMOJI),
                     )
                     .await
                     .unwrap();
 
-                make_temp!(warning_msg, http.clone());
+                make_temp!([warning_msg], &http);
             }
         });
     }
@@ -188,50 +236,133 @@ impl EventHandler for Handler {
 
         let mut words = words_lock.write().await;
 
-        // let words = data.get_mut::<OneWordStory>().unwrap();
-        // let temporary_messages = data.get_mut::<TemporaryMessages>().unwrap();
-
         let msg_is_mine = msg.author == **ctx.cache.current_user();
 
-        if msg.channel_id == 1239201355722264576 && !msg_is_mine {
-            if let Some((_, last_story_contributor)) = words.last() {
-                if *last_story_contributor == msg.author {
-                    msg.react(&ctx.http, ReactionType::Unicode("❌".to_string()))
-                        .await
-                        .unwrap();
+        if msg.channel_id == 1241105245791322203 && !msg_is_mine {
+            match msg.content.parse::<usize>() {
+                Ok(number) => {
+                    let current_number_lock = {
+                        let data_read = ctx.data.read().await;
+                        data_read.get::<CurrentNumber>().unwrap().clone()
+                    };
 
-                    let warning_msg = msg
-                        .channel_id
+                    let mut current_number = current_number_lock.write().await;
+
+                    if let Some(user) = &current_number.1 {
+                        if *user == msg.author {
+                            let err_msg = msg
+                                .channel_id
+                                .say(&ctx.http, format!("{} You can't count twice.", msg.author))
+                                .await
+                                .unwrap();
+
+                            react_negatively!(msg, &ctx.http);
+                            make_temp!([err_msg, msg], &ctx.http);
+
+                            return;
+                        }
+                    };
+
+                    if number as isize - current_number.0 as isize == 1 {
+                        react_positively!(msg, ctx.http);
+
+                        *current_number = (current_number.0 + 1, Some(msg.author));
+                    } else {
+                        let err_msg = msg
+                            .channel_id
+                            .say(
+                                &ctx.http,
+                                format!("{} You can only increment the number by 1.", msg.author),
+                            )
+                            .await
+                            .unwrap();
+
+                        *current_number = (0, None);
+
+                        react_negatively!(msg, &ctx.http);
+                        make_temp!([err_msg, msg], &ctx.http);
+                    }
+                }
+                Err(_) => {
+                    msg.channel_id
                         .say(
                             &ctx.http,
-                            format!("{} you can't type 2 words in a row", msg.author),
+                            format!("{} you can only type numbers.", msg.author),
                         )
                         .await
                         .unwrap();
 
-                    make_temp!(warning_msg, ctx);
+                    react_negatively!(msg, ctx.http);
+                }
+            }
+
+            return;
+        }
+
+        if msg.channel_id == 1239201355722264576 && !msg_is_mine {
+            if let Some((_, last_story_contributor)) = words.last() {
+                if *last_story_contributor == msg.author {
+                    let warning_msg = msg
+                        .channel_id
+                        .say(
+                            &ctx.http,
+                            format!("{} you can't type 2 words in a row.", msg.author),
+                        )
+                        .await
+                        .unwrap();
+
+                    react_negatively!(msg, &ctx.http);
+                    make_temp!([warning_msg, msg], &ctx.http);
 
                     return;
                 }
             }
 
             if msg.content.split_whitespace().collect::<Vec<_>>().len() != 1 {
-                msg.react(&ctx.http, ReactionType::Unicode("❌".to_string()))
-                    .await
-                    .unwrap();
-
-                let warning_msg = msg
+                let err_msg = msg
                     .channel_id
-                    .say(&ctx.http, format!("{} only 1 word is allowed", msg.author))
+                    .say(&ctx.http, format!("{} only 1 word is allowed.", msg.author))
                     .await
                     .unwrap();
 
-                make_temp!(warning_msg, ctx);
+                make_temp!([err_msg, msg], &ctx.http);
 
                 return;
             }
 
-            if msg.content.ends_with('.') {
+            let mut ended = false;
+
+            if PUNCTUANTION
+                .iter()
+                .any(|char| msg.content.starts_with(*char))
+            {
+                if words.is_empty() {
+                    msg.channel_id
+                        .say(
+                            &ctx.http,
+                            "The story can't be started with a punctuational symbol.",
+                        )
+                        .await
+                        .unwrap();
+
+                    react_negatively!(msg, &ctx.http);
+
+                    return;
+                } else if ['.', '?', '!']
+                    .iter()
+                    .any(|char| msg.content.starts_with(*char) || msg.content.ends_with(*char))
+                {
+                    ended = true;
+                }
+            }
+
+            words.push((msg.content.to_string(), msg.author.clone()));
+
+            msg.react(&ctx.http, ReactionType::Unicode("✅".to_string()))
+                .await
+                .unwrap();
+
+            if ended {
                 msg.channel_id
                     .say(
                         &ctx.http,
@@ -247,20 +378,7 @@ impl EventHandler for Handler {
                 words.clear();
             }
 
-            words.push((msg.content.to_string(), msg.author.clone()));
-
-            msg.react(&ctx.http, ReactionType::Unicode("✅".to_string()))
-                .await
-                .unwrap();
-
             return;
-        }
-
-        if msg.content.contains(":gigachad:")
-            && !msg_is_mine
-            && thread_rng().gen_range(0.0..1.0) <= 0.08
-        {
-            msg.channel_id.say(&ctx.http, ":gigachad:").await.unwrap();
         }
     }
 }
@@ -283,6 +401,7 @@ async fn main() {
     {
         let mut data = client.data.write().await;
         data.insert::<OneWordStory>(Arc::new(RwLock::new(Vec::new_in(Global))));
+        data.insert::<CurrentNumber>(Arc::new(RwLock::new((0, None))))
     }
 
     client.start().await.unwrap();
