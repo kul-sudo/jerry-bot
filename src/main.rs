@@ -61,7 +61,7 @@ impl TypeMapKey for OneWordStory {
 }
 
 impl TypeMapKey for CurrentNumber {
-    type Value = Arc<RwLock<(usize, Option<User>)>>;
+    type Value = Arc<RwLock<(isize, Option<User>)>>;
 }
 
 fn warn_run(options: &[ResolvedOption]) -> String {
@@ -177,7 +177,7 @@ impl EventHandler for Handler {
                 "warn" => Some(warn_run(&command.data.options())),
                 "therock" => Some(therock_run(&command.data.options())),
                 "story" => Some(story_run(&command.data.options(), &ctx).await),
-                _ => Some("unimplemented".to_string()),
+                _ => unreachable!(),
             };
 
             if let Some(content) = content {
@@ -213,15 +213,15 @@ impl EventHandler for Handler {
             loop {
                 interval.tick().await;
 
-                let http = ctx.http.clone();
-
                 let warning_msg = ChannelId::new(1238975924725350433)
                     .say(
-                        &http,
+                        &ctx.http,
                         format!("Don't forget to follow the rules! {}", THEROCK_EMOJI),
                     )
                     .await
                     .unwrap();
+
+                let http = ctx.http.clone();
 
                 make_temp!([warning_msg], &http);
             }
@@ -239,7 +239,7 @@ impl EventHandler for Handler {
         let msg_is_mine = msg.author == **ctx.cache.current_user();
 
         if msg.channel_id == 1241105245791322203 && !msg_is_mine {
-            match msg.content.parse::<usize>() {
+            match msg.content.parse::<isize>() {
                 Ok(number) => {
                     let current_number_lock = {
                         let data_read = ctx.data.read().await;
@@ -263,7 +263,7 @@ impl EventHandler for Handler {
                         }
                     };
 
-                    if number as isize - current_number.0 as isize == 1 {
+                    if number - current_number.0 == 1 {
                         react_positively!(msg, ctx.http);
 
                         *current_number = (current_number.0 + 1, Some(msg.author));
@@ -284,7 +284,8 @@ impl EventHandler for Handler {
                     }
                 }
                 Err(_) => {
-                    msg.channel_id
+                    let error_msg = msg
+                        .channel_id
                         .say(
                             &ctx.http,
                             format!("{} you can only type numbers.", msg.author),
@@ -292,7 +293,8 @@ impl EventHandler for Handler {
                         .await
                         .unwrap();
 
-                    react_negatively!(msg, ctx.http);
+                    react_negatively!(msg, &ctx.http);
+                    make_temp!([error_msg], &ctx.http);
                 }
             }
 
@@ -325,6 +327,7 @@ impl EventHandler for Handler {
                     .await
                     .unwrap();
 
+                react_negatively!(msg, &ctx.http);
                 make_temp!([err_msg, msg], &ctx.http);
 
                 return;
@@ -337,7 +340,8 @@ impl EventHandler for Handler {
                 .any(|char| msg.content.starts_with(*char))
             {
                 if words.is_empty() {
-                    msg.channel_id
+                    let error_msg = msg
+                        .channel_id
                         .say(
                             &ctx.http,
                             "The story can't be started with a punctuational symbol.",
@@ -346,6 +350,7 @@ impl EventHandler for Handler {
                         .unwrap();
 
                     react_negatively!(msg, &ctx.http);
+                    make_temp!([error_msg], &ctx.http);
 
                     return;
                 } else if ['.', '?', '!']
