@@ -1,3 +1,4 @@
+#![deny(elided_lifetimes_in_paths)]
 #![feature(duration_constructors)]
 #![feature(allocator_api)]
 #![feature(async_closure)]
