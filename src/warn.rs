@@ -2,7 +2,7 @@ use serenity::all::{
     CommandOptionType, CreateCommand, CreateCommandOption, ResolvedOption, ResolvedValue,
 };
 
-pub fn warn_run(options: &[ResolvedOption]) -> String {
+pub fn warn_run(options: &[ResolvedOption<'_>]) -> String {
     if let Some(ResolvedOption {
         value: ResolvedValue::User(user, _),
         ..

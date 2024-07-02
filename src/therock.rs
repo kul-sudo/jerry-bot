@@ -4,7 +4,7 @@ use serenity::all::{
 
 use crate::constants::THEROCK_EMOJI;
 
-pub fn therock_run(options: &[ResolvedOption]) -> String {
+pub fn therock_run(options: &[ResolvedOption<'_>]) -> String {
     if let Some(ResolvedOption {
         value: ResolvedValue::User(user, _),
         ..

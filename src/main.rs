@@ -4,18 +4,16 @@
 #![feature(async_closure)]
 
 mod constants;
-mod scheduled_messages;
 mod story;
 mod therock;
 mod warn;
+mod reactions;
 
-use std::alloc::Global;
 use std::env::{self};
 use std::sync::Arc;
 use std::time::Duration;
 
 use constants::THEROCK_EMOJI;
-use scheduled_messages::{scheduled_messages_register, scheduled_messages_run};
 use serenity::all::{
     ChannelId, CreateInteractionResponse, CreateInteractionResponseMessage, GuildId, Interaction,
     Message, ReactionType, Ready, User,
@@ -26,17 +24,13 @@ use story::{story_register, story_run};
 use therock::{therock_register, therock_run};
 use tokio::time::{interval, sleep};
 use warn::{warn_register, warn_run};
+use crate::constants::*;
 
 struct Handler;
 
 pub struct OneWordStory;
 pub struct CurrentNumber;
 pub struct CurrentSentence;
-
-const PUNCTUANTION: [char; 33] = [
-    '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', ' ', '-', '.', '/', ':', ';', '<',
-    '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~',
-];
 
 macro_rules! make_temp {
     ($msgs:expr, $ctx_http:expr) => {
@@ -46,22 +40,6 @@ macro_rules! make_temp {
                 msg.delete($ctx_http).await.unwrap();
             }
         });
-    };
-}
-
-macro_rules! react_positively {
-    ($msg:expr, $ctx_http:expr) => {
-        $msg.react($ctx_http, ReactionType::Unicode("✅".to_string()))
-            .await
-            .unwrap();
-    };
-}
-
-macro_rules! react_negatively {
-    ($msg:expr, $ctx_http:expr) => {
-        $msg.react($ctx_http, ReactionType::Unicode("❌".to_string()))
-            .await
-            .unwrap();
     };
 }
 
@@ -85,7 +63,6 @@ impl EventHandler for Handler {
                 "warn" => Some(warn_run(&command.data.options())),
                 "therock" => Some(therock_run(&command.data.options())),
                 "story" => Some(story_run(&command.data.options(), &ctx).await),
-                "schedule" => Some(scheduled_messages_run(&command, &ctx)),
                 _ => unreachable!(),
             };
 
@@ -106,19 +83,8 @@ impl EventHandler for Handler {
             warn_register(),
             therock_register(),
             story_register(),
-            scheduled_messages_register(),
         ];
-        // //
-        // for command in &commands {
-        //     Command::create_global_command(&ctx.http, command.clone())
-        //         .await
-        //         .unwrap();
-        // }
-        //
-        // Command::set_global_commands(&ctx.http, vec![])
-        //     .await
-        //     .unwrap();
-        // guild_id.set_commands(&ctx.http, vec![]).await.unwrap();
+
         guild_id.set_commands(&ctx.http, commands).await.unwrap();
 
         tokio::spawn(async move {
@@ -347,8 +313,8 @@ async fn main() {
 
     {
         let mut data = client.data.write().await;
-        data.insert::<OneWordStory>(Arc::new(RwLock::new(Vec::new_in(Global))));
-        data.insert::<CurrentSentence>(Arc::new(RwLock::new(Vec::new_in(Global))));
+        data.insert::<OneWordStory>(Arc::new(RwLock::new(Vec::new())));
+        data.insert::<CurrentSentence>(Arc::new(RwLock::new(Vec::new())));
         data.insert::<CurrentNumber>(Arc::new(RwLock::new((0, None))))
     }
 
